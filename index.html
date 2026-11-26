@@ -28,11 +28,12 @@ label.ck{display:flex;gap:6px;align-items:center}
 <div id="ui"></div>
 <h2>Export</h2>
 <div class="row col"><label>Größe</label><select id="size"><option>256</option><option>512</option><option selected>1024</option><option>2048</option></select></div>
+<div class="row col"><label>Format</label><select id="fmt"><option value="dxt1">DDS DXT1 (klein, ohne Alpha)</option><option value="dxt5">DDS DXT5</option><option value="raw">DDS unkomprimiert (A8R8G8B8)</option><option value="png">PNG</option></select></div>
 <div class="btns"><button class="p" id="expZip">6 Seiten als ZIP (PNG)</button><button id="expShot">Ansicht als PNG</button></div>
 <div class="row col"><label>Zeitpunkte</label><select id="steps"><option>4</option><option selected>8</option><option>12</option><option>24</option></select></div>
 <div class="btns"><button class="p" id="expSeries">Tag/Nacht-Serie als ZIP</button></div>
 <div class="btns"><button id="saveJ">Einstellungen speichern</button><button id="loadJ">Laden</button></div>
-<p class="sub">Für Metin2 die PNGs danach in DDS umwandeln (z. B. Paint.NET, GIMP oder texconv). Seitennamen: right, left, top, bottom, front, back.</p>
+<p class="sub">DDS wird ohne Mipmaps geschrieben. DXT1 ist für Skyboxen meist die beste Wahl, unkomprimiert hat die höchste Qualität. Seitennamen: right, left, top, bottom, front, back.</p>
 <input type="file" id="file" accept=".json" hidden>
 </div>
 <div id="view"><canvas id="c"></canvas>
@@ -183,9 +184,36 @@ cen.push(ch,n);off+=30+n.length+s}
 let cs=0;for(const x of cen)cs+=x.byteLength||x.length;
 const e=new DataView(new ArrayBuffer(22));e.setUint32(0,0x06054b50,true);e.setUint16(8,files.length,true);e.setUint16(10,files.length,true);e.setUint32(12,cs,true);e.setUint32(16,off,true);
 return new Blob([...parts,...cen,e],{type:'application/zip'})}
+const c2=document.createElement('canvas').getContext('2d',{willReadFrequently:true});
+const q565=(r,g,b)=>((r>>3)<<11)|((g>>2)<<5)|(b>>3);
+const d565=c=>{const r=c>>11&31,g=c>>5&63,b=c&31;return[(r<<3)|(r>>2),(g<<2)|(g>>4),(b<<3)|(b>>2)]};
+function colBlock(px,w,bx,by,out,o){let mn=[255,255,255],mx=[0,0,0];
+for(let y=0;y<4;y++)for(let x=0;x<4;x++){const i=((by*4+y)*w+bx*4+x)*4;for(let k=0;k<3;k++){const v=px[i+k];if(v<mn[k])mn[k]=v;if(v>mx[k])mx[k]=v}}
+for(let k=0;k<3;k++){const d=(mx[k]-mn[k])>>4;mn[k]+=d;mx[k]-=d}
+let a=q565(mx[0],mx[1],mx[2]),b=q565(mn[0],mn[1],mn[2]);if(a<b){const t=a;a=b;b=t}
+out[o]=a&255;out[o+1]=a>>8;out[o+2]=b&255;out[o+3]=b>>8;
+if(a==b){out[o+4]=out[o+5]=out[o+6]=out[o+7]=0;return}
+const A=d565(a),B=d565(b),pal=[A,B,A.map((v,k)=>((2*v+B[k])/3)|0),A.map((v,k)=>((v+2*B[k])/3)|0)];
+let bits=0;
+for(let p=0;p<16;p++){const i=((by*4+(p>>2))*w+bx*4+(p&3))*4;let best=0,bd=1e9;
+for(let j=0;j<4;j++){const dr=px[i]-pal[j][0],dg=px[i+1]-pal[j][1],db=px[i+2]-pal[j][2],d=dr*dr+dg*dg+db*db;if(d<bd){bd=d;best=j}}
+bits|=best<<(p*2)}
+out[o+4]=bits&255;out[o+5]=(bits>>8)&255;out[o+6]=(bits>>16)&255;out[o+7]=(bits>>>24)&255}
+function dds(c,fmt){const w=c.width,h=c.height;c2.canvas.width=w;c2.canvas.height=h;c2.drawImage(c,0,0);
+const px=c2.getImageData(0,0,w,h).data,hd=new DataView(new ArrayBuffer(128)),W=(o,v)=>hd.setUint32(o,v,true);
+W(0,0x20534444);W(4,124);W(12,h);W(16,w);W(76,32);W(108,0x1000);let body;
+if(fmt=='raw'){W(8,0x100F);W(20,w*4);W(80,0x41);W(88,32);W(92,0xff0000);W(96,0xff00);W(100,0xff);W(104,0xff000000);
+body=new Uint8Array(w*h*4);for(let i=0;i<w*h;i++){body[i*4]=px[i*4+2];body[i*4+1]=px[i*4+1];body[i*4+2]=px[i*4];body[i*4+3]=255}}
+else{const bs=fmt=='dxt1'?8:16,n=(w/4)*(h/4);W(8,0x81007);W(20,n*bs);W(80,4);W(84,fmt=='dxt1'?0x31545844:0x35545844);
+body=new Uint8Array(n*bs);let o=0;
+for(let by=0;by<h/4;by++)for(let bx=0;bx<w/4;bx++){if(bs==16){body[o]=255;body[o+1]=255;o+=8}colBlock(px,w,bx,by,body,o);o+=8}}
+return new Blob([hd.buffer,body])}
+async function pack(c,fmt,base){if(fmt=='png')return{name:base+'.png',data:new Uint8Array(await(await blob(c)).arrayBuffer())};
+return{name:base+'.dds',data:new Uint8Array(await dds(c,fmt).arrayBuffer())}}
+const FMT=()=>document.getElementById('fmt').value;
 document.getElementById('expZip').onclick=async()=>{R1=R1||mk(off);const S=+document.getElementById('size').value,files=[];
 for(const[n,[f,r,u]]of Object.entries(FACES)){R1.draw(P,{F:f,R:r,U:u,tn:1},T,S,S);
-files.push({name:'sky_'+n+'.png',data:new Uint8Array(await(await blob(off)).arrayBuffer())})}
+files.push(await pack(off,FMT(),'sky_'+n))}
 dl(zip(files),'skybox_'+S+'.zip')};
 document.getElementById('expSeries').onclick=async e=>{const b=e.target,t0=b.textContent;R1=R1||mk(off);
 const S=+document.getElementById('size').value,N=+document.getElementById('steps').value,files=[];
@@ -193,7 +221,7 @@ for(let i=0;i<N;i++){const h=i*24/N,Q={...P,tod:h};
 const dir='zeit_'+String(Math.floor(h)).padStart(2,'0')+'h'+String(Math.round((h%1)*60)).padStart(2,'0');
 b.textContent=(i+1)+' / '+N+' …';await new Promise(r=>setTimeout(r,20));
 for(const[n,[f,r,u]]of Object.entries(FACES)){R1.draw(Q,{F:f,R:r,U:u,tn:1},T,S,S);
-files.push({name:dir+'/sky_'+n+'.png',data:new Uint8Array(await(await blob(off)).arrayBuffer())})}}
+files.push(await pack(off,FMT(),dir+'/sky_'+n))}}
 dl(zip(files),'skybox_serie_'+N+'x_'+S+'.zip');b.textContent=t0};
 document.getElementById('expShot').onclick=async()=>{R0.draw(P,camera(),T,cv.width,cv.height);dl(await blob(cv),'sky_ansicht.png')};
 document.getElementById('saveJ').onclick=()=>dl(new Blob([JSON.stringify(P,null,1)],{type:'application/json'}),'sky_einstellungen.json');
