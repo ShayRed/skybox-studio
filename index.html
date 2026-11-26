@@ -29,6 +29,8 @@ label.ck{display:flex;gap:6px;align-items:center}
 <h2>Export</h2>
 <div class="row col"><label>Größe</label><select id="size"><option>256</option><option>512</option><option selected>1024</option><option>2048</option></select></div>
 <div class="btns"><button class="p" id="expZip">6 Seiten als ZIP (PNG)</button><button id="expShot">Ansicht als PNG</button></div>
+<div class="row col"><label>Zeitpunkte</label><select id="steps"><option>4</option><option selected>8</option><option>12</option><option>24</option></select></div>
+<div class="btns"><button class="p" id="expSeries">Tag/Nacht-Serie als ZIP</button></div>
 <div class="btns"><button id="saveJ">Einstellungen speichern</button><button id="loadJ">Laden</button></div>
 <p class="sub">Für Metin2 die PNGs danach in DDS umwandeln (z. B. Paint.NET, GIMP oder texconv). Seitennamen: right, left, top, bottom, front, back.</p>
 <input type="file" id="file" accept=".json" hidden>
@@ -185,6 +187,14 @@ document.getElementById('expZip').onclick=async()=>{R1=R1||mk(off);const S=+docu
 for(const[n,[f,r,u]]of Object.entries(FACES)){R1.draw(P,{F:f,R:r,U:u,tn:1},T,S,S);
 files.push({name:'sky_'+n+'.png',data:new Uint8Array(await(await blob(off)).arrayBuffer())})}
 dl(zip(files),'skybox_'+S+'.zip')};
+document.getElementById('expSeries').onclick=async e=>{const b=e.target,t0=b.textContent;R1=R1||mk(off);
+const S=+document.getElementById('size').value,N=+document.getElementById('steps').value,files=[];
+for(let i=0;i<N;i++){const h=i*24/N,Q={...P,tod:h};
+const dir='zeit_'+String(Math.floor(h)).padStart(2,'0')+'h'+String(Math.round((h%1)*60)).padStart(2,'0');
+b.textContent=(i+1)+' / '+N+' …';await new Promise(r=>setTimeout(r,20));
+for(const[n,[f,r,u]]of Object.entries(FACES)){R1.draw(Q,{F:f,R:r,U:u,tn:1},T,S,S);
+files.push({name:dir+'/sky_'+n+'.png',data:new Uint8Array(await(await blob(off)).arrayBuffer())})}}
+dl(zip(files),'skybox_serie_'+N+'x_'+S+'.zip');b.textContent=t0};
 document.getElementById('expShot').onclick=async()=>{R0.draw(P,camera(),T,cv.width,cv.height);dl(await blob(cv),'sky_ansicht.png')};
 document.getElementById('saveJ').onclick=()=>dl(new Blob([JSON.stringify(P,null,1)],{type:'application/json'}),'sky_einstellungen.json');
 const fi=document.getElementById('file');document.getElementById('loadJ').onclick=()=>fi.click();
