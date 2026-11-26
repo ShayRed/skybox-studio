@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Skybox Studio</title>
+<style>
+:root{--bg:#14161b;--pn:#1c1f26;--ln:#2d323c;--tx:#d9dde6;--mu:#8a92a3;--ac:#7fa6ff}
+*{box-sizing:border-box}html,body{height:100%;margin:0;background:var(--bg);color:var(--tx);font:13px/1.4 "Segoe UI",system-ui,sans-serif}
+body{display:flex}
+#side{width:310px;flex:none;overflow-y:auto;background:var(--pn);border-right:1px solid var(--ln);padding:14px}
+#view{flex:1;position:relative;min-width:0}
+canvas#c{width:100%;height:100%;display:block;cursor:grab}
+h1{font-size:17px;margin:0 0 2px}h2{font-size:12px;margin:16px 0 6px;color:var(--ac);font-weight:600;border-bottom:1px solid var(--ln);padding-bottom:3px}
+.sub{color:var(--mu);margin:0 0 10px}
+.row{display:grid;grid-template-columns:96px 1fr 44px;gap:6px;align-items:center;margin:3px 0}
+.row.col{grid-template-columns:96px 1fr}
+.row span.v{color:var(--mu);text-align:right;font-variant-numeric:tabular-nums}
+input[type=range]{width:100%;accent-color:var(--ac)}input[type=color]{width:46px;height:22px;border:1px solid var(--ln);background:none;padding:0}
+button,select{background:#262b35;color:var(--tx);border:1px solid var(--ln);border-radius:5px;padding:6px 9px;font:inherit;cursor:pointer}
+button:hover{border-color:var(--ac)}button.p{background:var(--ac);color:#0b1020;border-color:var(--ac);font-weight:600}
+.btns{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
+#hud{position:absolute;left:12px;bottom:12px;background:#000a;padding:6px 10px;border-radius:6px;color:var(--mu)}
+#play{position:absolute;right:12px;top:12px;display:flex;gap:6px;align-items:center;background:#000a;padding:6px 10px;border-radius:6px}
+label.ck{display:flex;gap:6px;align-items:center}
+@media(max-width:700px){body{flex-direction:column-reverse}#side{width:100%;height:46%;border:0}}
+</style></head><body>
+<div id="side">
+<h1>Skybox Studio</h1><p class="sub">Himmel, Sonne, Mond und Wolken erzeugen und als Cubemap exportieren.</p>
+<h2>Vorlagen</h2><div class="btns" id="presets"></div>
+<div id="ui"></div>
+<h2>Export</h2>
+<div class="row col"><label>Größe</label><select id="size"><option>256</option><option>512</option><option selected>1024</option><option>2048</option></select></div>
+<div class="btns"><button class="p" id="expZip">6 Seiten als ZIP (PNG)</button><button id="expShot">Ansicht als PNG</button></div>
+<div class="btns"><button id="saveJ">Einstellungen speichern</button><button id="loadJ">Laden</button></div>
+<p class="sub">Für Metin2 die PNGs danach in DDS umwandeln (z. B. Paint.NET, GIMP oder texconv). Seitennamen: right, left, top, bottom, front, back.</p>
+<input type="file" id="file" accept=".json" hidden>
+</div>
+<div id="view"><canvas id="c"></canvas>
+<div id="play"><button id="pb">▶ Tag/Nacht</button><label class="ck">Tempo <input type="range" id="spd" min="0.1" max="6" step="0.1" value="1" style="width:80px"></label></div>
+<div id="hud">Ziehen: umsehen · Mausrad: Zoom</div></div>
+<script>
+const VS='attribute vec2 a;void main(){gl_Position=vec4(a,0.,1.);}';
+const FS=`precision highp float;
+uniform vec2 R;uniform vec3 F,Rt,U,sunD,moonD;uniform float T,tn,sunSize,moonSize,moonPhase,stars,cover,soft,cscale,bright,glow,wind,winddir;
+uniform vec3 cZn,cHn,cGn,cZd,cHd,cGd,cDusk,cCloud,cSun,cMoon;
+float h21(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
+float nz(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(h21(i),h21(i+vec2(1,0)),f.x),mix(h21(i+vec2(0,1)),h21(i+vec2(1,1)),f.x),f.y);}
+float fbm(vec2 p){float v=0.,a=.5;for(int i=0;i<6;i++){v+=a*nz(p);p=p*2.03+17.1;a*=.5;}return v;}
+float cd(vec2 p){float f=fbm(p);float t=.78-cover*.5;return smoothstep(t,t+soft,f);}
+void main(){
+vec2 uv=gl_FragCoord.xy/R*2.-1.;uv.x*=R.x/R.y;
+vec3 d=normalize(F+Rt*uv.x*tn+U*uv.y*tn);
+float h=d.y,sh=sunD.y;
+float day=smoothstep(-.12,.25,sh),dusk=exp(-pow(sh/.2,2.));
+vec3 zen=mix(cZn,cZd,day),hor=mix(cHn,cHd,day),gr=mix(cGn,cGd,day);
+float ds=dot(d,sunD),dm=dot(d,moonD);
+hor=mix(hor,cDusk,dusk*.75);
+hor+=cDusk*dusk*pow(max(ds,0.),5.)*.7;
+vec3 col=mix(hor,zen,pow(clamp(h,0.,1.),.45));
+// Sterne
+if(h>0.){vec3 q=d*150.;vec3 c=floor(q);float r=fract(sin(dot(c,vec3(12.9898,78.233,37.719)))*43758.5453);
+vec3 f=fract(q)-.5;float s=smoothstep(.28,0.,length(f))*step(1.-stars*.04,r);
+float tw=.7+.3*sin(T*3.+r*60.);col+=vec3(.9,.95,1.)*s*tw*pow(1.-day,2.)*smoothstep(0.,.1,h);}
+// Sonne
+float as=acos(clamp(ds,-1.,1.));
+col+=cSun*(1.-smoothstep(sunSize*.9,sunSize,as))*3.+cSun*exp(-as*(10./glow))*.55*(1.-dusk*.3);
+// Mond
+float am=acos(clamp(dm,-1.,1.));
+vec3 up=abs(moonD.y)>.99?vec3(0,0,1):vec3(0,1,0);
+vec3 mt=normalize(cross(up,moonD)),mb=cross(moonD,mt);
+float mx=dot(d,mt)/moonSize,my=dot(d,mb)/moonSize,r2=mx*mx+my*my;
+float vis=1.-day*.75;
+float full=1.-abs(moonPhase-.5)*2.;
+col+=cMoon*exp(-am*(9./glow))*.4*(.25+.75*full)*vis;
+if(r2<1.){float z=sqrt(1.-r2);vec3 n=vec3(mx,my,z);float al=moonPhase*6.2832;
+vec3 L=vec3(sin(al),0.,-cos(al));float lit=smoothstep(-.03,.1,dot(n,L));
+float mar=smoothstep(.35,.65,fbm(vec2(mx,my)*2.5+3.));
+float cr=.85+.15*fbm(vec2(mx,my)*9.);
+vec3 mc=cMoon*mix(.5,1.,mar)*cr*(.06+lit)*1.15;
+col=mix(col,mc,smoothstep(1.,.95,sqrt(r2))*vis);}
+// Wolken
+if(h>0.){vec2 p=d.xz/(h+.12)*cscale*.5+vec2(cos(winddir),sin(winddir))*T*wind;
+float dn=cd(p);
+vec3 l3=day>.5?sunD:moonD;vec2 l2=normalize(l3.xz+1e-4);
+float dn2=cd(p+l2*.12);
+float lt=clamp(.55+(dn-dn2)*2.6,0.,1.);
+float lum=mix(.5,1.,day);
+vec3 lit=cCloud*lum*mix(vec3(1),cDusk*1.25,dusk*.55);
+lit+=cMoon*pow(max(dm,0.),18.)*(1.-day)*.6+cSun*pow(max(ds,0.),30.)*day*.4;
+vec3 sh2=mix(zen,hor,.4)*.9;
+vec3 cc=mix(sh2,lit,lt);
+col=mix(col,cc,dn*smoothstep(0.,.2,h)*.96);}
+col*=bright;
+col=mix(col,gr*bright,smoothstep(.012,-.05,h));
+gl_FragColor=vec4(col,1.);}`;
+function mk(cv){const gl=cv.getContext('webgl',{preserveDrawingBuffer:true});
+const sh=(t,s)=>{const o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);if(!gl.getShaderParameter(o,gl.COMPILE_STATUS))throw gl.getShaderInfoLog(o);return o};
+const pr=gl.createProgram();gl.attachShader(pr,sh(gl.VERTEX_SHADER,VS));gl.attachShader(pr,sh(gl.FRAGMENT_SHADER,FS));gl.linkProgram(pr);gl.useProgram(pr);
+const b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
+const l=gl.getAttribLocation(pr,'a');gl.enableVertexAttribArray(l);gl.vertexAttribPointer(l,2,gl.FLOAT,false,0,0);
+const loc={};const u=n=>loc[n]??(loc[n]=gl.getUniformLocation(pr,n));
+return{cv,draw(P,cam,T,w,h){cv.width=w;cv.height=h;gl.viewport(0,0,w,h);
+gl.uniform2f(u('R'),w,h);gl.uniform1f(u('T'),T);gl.uniform1f(u('tn'),cam.tn);
+gl.uniform3fv(u('F'),cam.F);gl.uniform3fv(u('Rt'),cam.R);gl.uniform3fv(u('U'),cam.U);
+const o=orbit(P);gl.uniform3fv(u('sunD'),o.s);gl.uniform3fv(u('moonD'),o.m);
+for(const k of NUM)gl.uniform1f(u(k[0]),k[0]=='sunSize'||k[0]=='moonSize'?P[k[0]]*Math.PI/180:P[k[0]]);
+gl.uniform1f(u('winddir'),P.winddir*Math.PI/180);
+for(const k of COL)gl.uniform3fv(u(k[0]),hex(P[k[0]]));
+gl.drawArrays(gl.TRIANGLES,0,3)}}}
+const hex=s=>[1,3,5].map(i=>parseInt(s.substr(i,2),16)/255);
+const rad=Math.PI/180;
+function orbit(P){const a=(P.tod-6)/24*2*Math.PI,az=P.az*rad,E=[Math.sin(az),0,Math.cos(az)];
+const dir=an=>[E[0]*Math.cos(an),Math.sin(an),E[2]*Math.cos(an)];
+return{s:dir(a),m:dir(a+Math.PI+P.moonOff*rad)}}
+// Parameter
+const NUM=[['tod','Uhrzeit (h)',0,24,.05],['az','Bahn-Richtung °',0,360,1],['moonOff','Mond-Versatz °',-180,180,1],
+['sunSize','Sonnengröße °',.5,8,.1],['moonSize','Mondgröße °',.5,12,.1],['moonPhase','Mondphase',0,1,.01],['glow','Leuchten',.3,4,.05],
+['stars','Sterne',0,1,.01],['cover','Bedeckung',0,1,.01],['soft','Wolkenweichheit',.05,.6,.01],['cscale','Wolkenskala',.5,12,.1],
+['wind','Wolkentempo',0,.2,.002],['winddir','Windrichtung °',0,360,1],['bright','Helligkeit',.4,1.6,.01]];
+const COL=[['cZn','Zenit Nacht'],['cHn','Horizont Nacht'],['cGn','Boden Nacht'],['cZd','Zenit Tag'],['cHd','Horizont Tag'],['cGd','Boden Tag'],
+['cDusk','Dämmerung'],['cCloud','Wolkenlicht'],['cSun','Sonnenfarbe'],['cMoon','Mondfarbe']];
+const SEC={tod:'Zeit & Gestirne',sunSize:'Sonne & Mond',stars:'Sterne',cover:'Wolken',bright:'Gesamt'};
+const DEF={tod:23,az:40,moonOff:-45,sunSize:2.2,moonSize:3.6,moonPhase:.5,glow:1.4,stars:.5,cover:.55,soft:.28,cscale:5,wind:.02,winddir:20,bright:1,
+cZn:'#0b1233',cHn:'#2a3a78',cGn:'#141a2e',cZd:'#2f6fd0',cHd:'#a9cdf2',cGd:'#4a5a3a',cDusk:'#ff8c4a',cCloud:'#d4dcf5',cSun:'#fff1c8',cMoon:'#e8eeff'};
+const PRE={
+'Mondnacht':{},
+'Mondnacht grau':{cGn:'#1c1c1e',cHn:'#2b3552',cZn:'#0e1330'},
+'Tag':{tod:12,cover:.4,stars:0},
+'Sonnenuntergang':{tod:18.4,cover:.5,cGn:'#1a1620'},
+'Sturm':{tod:21,cover:.95,soft:.4,wind:.07,stars:.1,cZn:'#07090f',cHn:'#1d2430',cCloud:'#9aa6bd',bright:.85},
+'Vollmond klar':{cover:.15,stars:.9,moonSize:4.5,glow:2}};
+let P={...DEF};const ui=document.getElementById('ui'),ctl={};
+function build(){let h='';const rows=[];NUM.forEach(k=>{if(SEC[k[0]])rows.push(['h',SEC[k[0]]]);rows.push(['n',k])});
+rows.splice(1,0,['h','Farben']);
+ui.innerHTML='';
+const sec=t=>{const e=document.createElement('h2');e.textContent=t;ui.appendChild(e)};
+sec('Zeit & Gestirne');
+NUM.forEach(k=>{if(SEC[k[0]]&&k[0]!='tod')sec(SEC[k[0]]);
+const r=document.createElement('div');r.className='row';r.innerHTML=`<label>${k[1]}</label><input type="range" min="${k[2]}" max="${k[3]}" step="${k[4]}"><span class="v"></span>`;
+const i=r.children[1],v=r.children[2];i.oninput=()=>{P[k[0]]=+i.value;v.textContent=(+i.value).toFixed(k[4]<.01?3:k[4]<1?2:0)};
+ctl[k[0]]={set(x){i.value=x;i.oninput()}};ui.appendChild(r)});
+sec('Farben');
+COL.forEach(k=>{const r=document.createElement('div');r.className='row col';r.innerHTML=`<label>${k[1]}</label><input type="color">`;
+const i=r.children[1];i.oninput=()=>P[k[0]]=i.value;ctl[k[0]]={set(x){i.value=x;P[k[0]]=x}};ui.appendChild(r)})}
+function apply(o){P={...P,...o};for(const k in ctl)ctl[k].set(P[k])}
+build();apply(DEF);
+const pb=document.getElementById('presets');
+Object.keys(PRE).forEach(n=>{const b=document.createElement('button');b.textContent=n;b.onclick=()=>apply({...DEF,...PRE[n]});pb.appendChild(b)});
+// Kamera
+const cv=document.getElementById('c');let R0;try{R0=mk(cv)}catch(e){document.body.innerHTML='<p style="padding:20px">WebGL-Fehler: '+e+'</p>'}
+let yaw=40*rad,pit=18*rad,fov=75;
+function camera(){const f=[Math.sin(yaw)*Math.cos(pit),Math.sin(pit),Math.cos(yaw)*Math.cos(pit)];
+let r=[f[2],0,-f[0]];const l=Math.hypot(r[0],r[2]);r=[r[0]/l,0,r[2]/l];
+const u=[f[1]*r[2]-f[2]*r[1],f[2]*r[0]-f[0]*r[2],f[0]*r[1]-f[1]*r[0]];
+return{F:f,R:r,U:u,tn:Math.tan(fov*rad/2)}}
+let drag=false,lx,ly;
+cv.onpointerdown=e=>{drag=true;lx=e.clientX;ly=e.clientY;cv.setPointerCapture(e.pointerId);cv.style.cursor='grabbing'};
+cv.onpointerup=()=>{drag=false;cv.style.cursor='grab'};
+cv.onpointermove=e=>{if(!drag)return;const k=fov/cv.clientHeight*rad;yaw-=(e.clientX-lx)*k;pit=Math.max(-1.5,Math.min(1.5,pit+(e.clientY-ly)*k));lx=e.clientX;ly=e.clientY};
+cv.onwheel=e=>{e.preventDefault();fov=Math.max(30,Math.min(110,fov+e.deltaY*.04))};
+// Schleife
+let play=false,T=0,last=performance.now();const pbtn=document.getElementById('pb'),spd=document.getElementById('spd');
+pbtn.onclick=()=>{play=!play;pbtn.textContent=play?'❚❚ Pause':'▶ Tag/Nacht'};
+function loop(t){const dt=Math.min(.1,(t-last)/1000);last=t;T+=dt;
+if(play)ctl.tod.set(((P.tod+dt*spd.value)%24).toFixed(2));
+const w=cv.clientWidth,h=cv.clientHeight,s=Math.min(1,devicePixelRatio||1);
+R0.draw(P,camera(),T,Math.round(w*s),Math.round(h*s));requestAnimationFrame(loop)}
+requestAnimationFrame(loop);
+// Export
+const off=document.createElement('canvas');let R1;
+const FACES={right:[[1,0,0],[0,0,-1],[0,1,0]],left:[[-1,0,0],[0,0,1],[0,1,0]],top:[[0,1,0],[1,0,0],[0,0,-1]],
+bottom:[[0,-1,0],[1,0,0],[0,0,1]],front:[[0,0,1],[1,0,0],[0,1,0]],back:[[0,0,-1],[-1,0,0],[0,1,0]]};
+const blob=c=>new Promise(r=>c.toBlob(r,'image/png'));
+function dl(b,n){const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=n;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),3000)}
+const CT=(()=>{const t=[];for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0}return t})();
+const crc=d=>{let c=~0;for(let i=0;i<d.length;i++)c=CT[(c^d[i])&255]^(c>>>8);return ~c>>>0};
+function zip(files){const enc=new TextEncoder(),parts=[],cen=[];let off=0;
+for(const f of files){const n=enc.encode(f.name),c=crc(f.data),s=f.data.length;
+const lh=new DataView(new ArrayBuffer(30));lh.setUint32(0,0x04034b50,true);lh.setUint16(4,20,true);lh.setUint32(14,c,true);lh.setUint32(18,s,true);lh.setUint32(22,s,true);lh.setUint16(26,n.length,true);
+parts.push(lh,n,f.data);
+const ch=new DataView(new ArrayBuffer(46));ch.setUint32(0,0x02014b50,true);ch.setUint16(4,20,true);ch.setUint16(6,20,true);ch.setUint32(16,c,true);ch.setUint32(20,s,true);ch.setUint32(24,s,true);ch.setUint16(28,n.length,true);ch.setUint32(42,off,true);
+cen.push(ch,n);off+=30+n.length+s}
+let cs=0;for(const x of cen)cs+=x.byteLength||x.length;
+const e=new DataView(new ArrayBuffer(22));e.setUint32(0,0x06054b50,true);e.setUint16(8,files.length,true);e.setUint16(10,files.length,true);e.setUint32(12,cs,true);e.setUint32(16,off,true);
+return new Blob([...parts,...cen,e],{type:'application/zip'})}
+document.getElementById('expZip').onclick=async()=>{R1=R1||mk(off);const S=+document.getElementById('size').value,files=[];
+for(const[n,[f,r,u]]of Object.entries(FACES)){R1.draw(P,{F:f,R:r,U:u,tn:1},T,S,S);
+files.push({name:'sky_'+n+'.png',data:new Uint8Array(await(await blob(off)).arrayBuffer())})}
+dl(zip(files),'skybox_'+S+'.zip')};
+document.getElementById('expShot').onclick=async()=>{R0.draw(P,camera(),T,cv.width,cv.height);dl(await blob(cv),'sky_ansicht.png')};
+document.getElementById('saveJ').onclick=()=>dl(new Blob([JSON.stringify(P,null,1)],{type:'application/json'}),'sky_einstellungen.json');
+const fi=document.getElementById('file');document.getElementById('loadJ').onclick=()=>fi.click();
+fi.onchange=async()=>{try{apply(JSON.parse(await fi.files[0].text()))}catch(e){alert('Datei ungültig')}fi.value=''};
+</script></body></html>
