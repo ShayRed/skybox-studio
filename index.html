@@ -15,6 +15,7 @@ h1{font-size:17px;margin:0 0 2px}h2{font-size:12px;margin:16px 0 6px;color:var(-
 .row span.v{color:var(--mu);text-align:right;font-variant-numeric:tabular-nums}
 input[type=range]{width:100%;accent-color:var(--ac)}input[type=color]{width:46px;height:22px;border:1px solid var(--ln);background:none;padding:0}
 button,select{background:#262b35;color:var(--tx);border:1px solid var(--ln);border-radius:5px;padding:6px 9px;font:inherit;cursor:pointer}
+.row select{width:100%;min-width:0;text-overflow:ellipsis}
 button:hover{border-color:var(--ac)}button.p{background:var(--ac);color:#0b1020;border-color:var(--ac);font-weight:600}
 .btns{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
 #hud{position:absolute;left:12px;bottom:12px;background:#000a;padding:6px 10px;border-radius:6px;color:var(--mu)}
@@ -28,8 +29,8 @@ label.ck{display:flex;gap:6px;align-items:center}
 <div id="ui"></div>
 <h2>Export</h2>
 <div class="row col"><label>Größe</label><select id="size"><option>256</option><option>512</option><option selected>1024</option><option>2048</option></select></div>
-<div class="row col"><label>Format</label><select id="fmt"><option value="dxt1">DDS DXT1 (klein, ohne Alpha)</option><option value="dxt5">DDS DXT5</option><option value="raw">DDS unkomprimiert (A8R8G8B8)</option><option value="png">PNG</option></select></div>
-<div class="btns"><button class="p" id="expZip">6 Seiten als ZIP (PNG)</button><button id="expShot">Ansicht als PNG</button></div>
+<div class="row col"><label>Format</label><select id="fmt"><option value="dxt1">DDS DXT1</option><option value="dxt5">DDS DXT5</option><option value="raw">DDS unkomprimiert</option><option value="png">PNG</option></select></div>
+<div class="btns"><button class="p" id="expZip">6 Seiten als ZIP</button><button id="expShot">Ansicht als PNG</button></div>
 <div class="row col"><label>Zeitpunkte</label><select id="steps"><option>4</option><option selected>8</option><option>12</option><option>24</option></select></div>
 <div class="btns"><button class="p" id="expSeries">Tag/Nacht-Serie als ZIP</button></div>
 <div class="btns"><button id="saveJ">Einstellungen speichern</button><button id="loadJ">Laden</button></div>
