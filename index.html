@@ -26,6 +26,8 @@ label.ck{display:flex;gap:6px;align-items:center}
 <div id="side">
 <h1>Skybox Studio</h1><p class="sub">Himmel, Sonne, Mond und Wolken erzeugen und als Cubemap exportieren.</p>
 <h2>Vorlagen</h2><div class="btns" id="presets"></div>
+<div class="btns"><button id="rnd">Zufall</button><button id="svp">Als Vorlage speichern</button></div>
+<div class="btns" id="us"></div>
 <div id="ui"></div>
 <h2>Export</h2>
 <div class="row col"><label>Größe</label><select id="size"><option>256</option><option>512</option><option selected>1024</option><option>2048</option></select></div>
@@ -43,12 +45,12 @@ label.ck{display:flex;gap:6px;align-items:center}
 <script>
 const VS='attribute vec2 a;void main(){gl_Position=vec4(a,0.,1.);}';
 const FS=`precision highp float;
-uniform vec2 R;uniform vec3 F,Rt,U,sunD,moonD;uniform float T,tn,sunSize,moonSize,moonPhase,stars,cover,soft,cscale,bright,glow,wind,winddir;
-uniform vec3 cZn,cHn,cGn,cZd,cHd,cGd,cDusk,cCloud,cSun,cMoon;
+uniform vec2 R;uniform vec3 F,Rt,U,sunD,moonD;uniform float T,tn,sunSize,moonSize,moonPhase,stars,cover,soft,cscale,bright,glow,wind,winddir,cover2,cscale2,wind2,fog,mh,mdet,milky;
+uniform vec3 cZn,cHn,cGn,cZd,cHd,cGd,cDusk,cCloud,cSun,cMoon,cMt;
 float h21(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
 float nz(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(h21(i),h21(i+vec2(1,0)),f.x),mix(h21(i+vec2(0,1)),h21(i+vec2(1,1)),f.x),f.y);}
 float fbm(vec2 p){float v=0.,a=.5;for(int i=0;i<6;i++){v+=a*nz(p);p=p*2.03+17.1;a*=.5;}return v;}
-float cd(vec2 p){float f=fbm(p);float t=.78-cover*.5;return smoothstep(t,t+soft,f);}
+float cd(vec2 p,float cv){float f=fbm(p);float t=.78-cv*.5;return smoothstep(t,t+soft,f);}
 void main(){
 vec2 uv=gl_FragCoord.xy/R*2.-1.;uv.x*=R.x/R.y;
 vec3 d=normalize(F+Rt*uv.x*tn+U*uv.y*tn);
@@ -63,6 +65,8 @@ vec3 col=mix(hor,zen,pow(clamp(h,0.,1.),.45));
 if(h>0.){vec3 q=d*150.;vec3 c=floor(q);float r=fract(sin(dot(c,vec3(12.9898,78.233,37.719)))*43758.5453);
 vec3 f=fract(q)-.5;float s=smoothstep(.28,0.,length(f))*step(1.-stars*.04,r);
 float tw=.7+.3*sin(T*3.+r*60.);col+=vec3(.9,.95,1.)*s*tw*pow(1.-day,2.)*smoothstep(0.,.1,h);}
+if(milky>0.&&h>0.){vec3 ax=normalize(vec3(.3,.8,.5));float mw=exp(-pow(dot(d,ax)*4.,2.));
+col+=vec3(.5,.55,.85)*mw*(.2+.8*fbm(d.xy*6.+d.z*3.))*milky*.5*pow(1.-day,2.)*smoothstep(0.,.15,h);}
 // Sonne
 float as=acos(clamp(ds,-1.,1.));
 col+=cSun*(1.-smoothstep(sunSize*.9,sunSize,as))*3.+cSun*exp(-as*(10./glow))*.55*(1.-dusk*.3);
@@ -81,19 +85,23 @@ float cr=.85+.15*fbm(vec2(mx,my)*9.);
 vec3 mc=cMoon*mix(.5,1.,mar)*cr*(.06+lit)*1.15;
 col=mix(col,mc,smoothstep(1.,.95,sqrt(r2))*vis);}
 // Wolken
-if(h>0.){vec2 p=d.xz/(h+.12)*cscale*.5+vec2(cos(winddir),sin(winddir))*T*wind;
-float dn=cd(p);
+for(int L=0;L<2;L++){float cv=L==0?cover:cover2,sc=L==0?cscale:cscale2,wd=L==0?wind:wind2;
+if(h>0.&&cv>0.){vec2 p=d.xz/(h+.12)*sc*.5+vec2(cos(winddir),sin(winddir))*T*wd+float(L)*31.7;
+float dn=cd(p,cv);
 vec3 l3=day>.5?sunD:moonD;vec2 l2=normalize(l3.xz+1e-4);
-float dn2=cd(p+l2*.12);
+float dn2=cd(p+l2*.12,cv);
 float lt=clamp(.55+(dn-dn2)*2.6,0.,1.);
 float lum=mix(.5,1.,day);
 vec3 lit=cCloud*lum*mix(vec3(1),cDusk*1.25,dusk*.55);
 lit+=cMoon*pow(max(dm,0.),18.)*(1.-day)*.6+cSun*pow(max(ds,0.),30.)*day*.4;
 vec3 sh2=mix(zen,hor,.4)*.9;
 vec3 cc=mix(sh2,lit,lt);
-col=mix(col,cc,dn*smoothstep(0.,.2,h)*.96);}
+col=mix(col,cc,dn*smoothstep(0.,.2,h)*.96);}}
+if(mh>0.){float an=atan(d.x,d.z);float rg=mh*(.3+fbm(vec2(cos(an),sin(an))*mdet+7.)*1.4);
+vec3 mc=cMt*mix(.4,1.,day)+hor*.12;col=mix(col,mc,smoothstep(rg,rg-.004,h)*step(-.06,h));}
 col*=bright;
 col=mix(col,gr*bright,smoothstep(.012,-.05,h));
+col=mix(col,hor*bright,fog*exp(-abs(h)*7.)*.85);
 gl_FragColor=vec4(col,1.);}`;
 function mk(cv){const gl=cv.getContext('webgl',{preserveDrawingBuffer:true});
 const sh=(t,s)=>{const o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);if(!gl.getShaderParameter(o,gl.COMPILE_STATUS))throw gl.getShaderInfoLog(o);return o};
@@ -117,15 +125,18 @@ return{s:dir(a),m:dir(a+Math.PI+P.moonOff*rad)}}
 // Parameter
 const NUM=[['tod','Uhrzeit (h)',0,24,.05],['az','Bahn-Richtung °',0,360,1],['moonOff','Mond-Versatz °',-180,180,1],
 ['sunSize','Sonnengröße °',.5,8,.1],['moonSize','Mondgröße °',.5,12,.1],['moonPhase','Mondphase',0,1,.01],['glow','Leuchten',.3,4,.05],
-['stars','Sterne',0,1,.01],['cover','Bedeckung',0,1,.01],['soft','Wolkenweichheit',.05,.6,.01],['cscale','Wolkenskala',.5,12,.1],
-['wind','Wolkentempo',0,.2,.002],['winddir','Windrichtung °',0,360,1],['bright','Helligkeit',.4,1.6,.01]];
+['stars','Sterne',0,1,.01],['milky','Milchstraße',0,1,.01],['cover','Bedeckung',0,1,.01],['soft','Wolkenweichheit',.05,.6,.01],['cscale','Wolkenskala',.5,12,.1],
+['wind','Wolkentempo',0,.2,.002],['winddir','Windrichtung °',0,360,1],
+['cover2','Bedeckung',0,1,.01],['cscale2','Skala',.5,12,.1],['wind2','Tempo',0,.2,.002],
+['fog','Nebel',0,1,.01],['mh','Berghöhe',0,.5,.005],['mdet','Berg-Detail',.5,12,.1],['bright','Helligkeit',.4,1.6,.01]];
 const COL=[['cZn','Zenit Nacht'],['cHn','Horizont Nacht'],['cGn','Boden Nacht'],['cZd','Zenit Tag'],['cHd','Horizont Tag'],['cGd','Boden Tag'],
-['cDusk','Dämmerung'],['cCloud','Wolkenlicht'],['cSun','Sonnenfarbe'],['cMoon','Mondfarbe']];
-const SEC={tod:'Zeit & Gestirne',sunSize:'Sonne & Mond',stars:'Sterne',cover:'Wolken',bright:'Gesamt'};
-const DEF={tod:23,az:40,moonOff:-45,sunSize:2.2,moonSize:3.6,moonPhase:.5,glow:1.4,stars:.5,cover:.55,soft:.28,cscale:5,wind:.02,winddir:20,bright:1,
+['cMt','Berge'],['cDusk','Dämmerung'],['cCloud','Wolkenlicht'],['cSun','Sonnenfarbe'],['cMoon','Mondfarbe']];
+const SEC={tod:'Zeit & Gestirne',sunSize:'Sonne & Mond',stars:'Sterne',cover:'Wolkenschicht 1',cover2:'Wolkenschicht 2 (höher)',fog:'Nebel & Horizont',bright:'Gesamt'};
+const DEF={tod:23,az:40,moonOff:-45,sunSize:2.2,moonSize:3.6,moonPhase:.5,glow:1.4,stars:.5,cover:.55,soft:.28,cscale:5,wind:.02,winddir:20,bright:1,cover2:0,cscale2:3,wind2:.035,fog:0,mh:0,mdet:3,milky:0,cMt:'#0b1020',
 cZn:'#0b1233',cHn:'#2a3a78',cGn:'#141a2e',cZd:'#2f6fd0',cHd:'#a9cdf2',cGd:'#4a5a3a',cDusk:'#ff8c4a',cCloud:'#d4dcf5',cSun:'#fff1c8',cMoon:'#e8eeff'};
 const PRE={
 'Mondnacht':{},
+'Mondnacht Berge':{mh:.07,fog:.2,cover2:.35,milky:.5},
 'Mondnacht grau':{cGn:'#1c1c1e',cHn:'#2b3552',cZn:'#0e1330'},
 'Tag':{tod:12,cover:.4,stars:0},
 'Sonnenuntergang':{tod:18.4,cover:.5,cGn:'#1a1620'},
@@ -148,6 +159,18 @@ function apply(o){P={...P,...o};for(const k in ctl)ctl[k].set(P[k])}
 build();apply(DEF);
 const pb=document.getElementById('presets');
 Object.keys(PRE).forEach(n=>{const b=document.createElement('button');b.textContent=n;b.onclick=()=>apply({...DEF,...PRE[n]});pb.appendChild(b)});
+const hsl=(h,s,l)=>{h=((h%360)+360)%360;s/=100;l/=100;const a=s*Math.min(l,1-l),f=n=>{const k=(n+h/30)%12;return Math.round(255*(l-a*Math.max(-1,Math.min(k-3,9-k,1))))};return'#'+[f(0),f(8),f(4)].map(x=>x.toString(16).padStart(2,'0')).join('')};
+document.getElementById('rnd').onclick=()=>{const o={},keep=['tod','sunSize','moonSize','bright','winddir'];
+NUM.forEach(k=>{if(!keep.includes(k[0]))o[k[0]]=+(k[2]+Math.random()*(k[3]-k[2])).toFixed(3)});
+o.mh=Math.random()<.5?0:o.mh*.5;o.cover2=Math.random()<.5?0:o.cover2;
+const H=Math.random()*360;Object.assign(o,{cZn:hsl(H,60,10),cHn:hsl(H+20,50,28),cGn:hsl(H,30,8),cZd:hsl(H+10,65,45),cHd:hsl(H+30,60,80),cGd:hsl(H+60,25,25),cDusk:hsl(H+150,90,60),cMt:hsl(H,40,8)});apply(o)};
+let US={};try{US=JSON.parse(localStorage.getItem('sbs')||'{}')}catch(e){}
+function usRender(){const box=document.getElementById('us');box.innerHTML='';
+Object.keys(US).forEach(n=>{const b=document.createElement('button');b.textContent=n;b.title='Klick: laden · Rechtsklick: löschen';
+b.onclick=()=>apply(US[n]);b.oncontextmenu=e=>{e.preventDefault();if(confirm('Vorlage "'+n+'" löschen?')){delete US[n];usSave();usRender()}};box.appendChild(b)})}
+function usSave(){try{localStorage.setItem('sbs',JSON.stringify(US))}catch(e){}}
+document.getElementById('svp').onclick=()=>{const n=prompt('Name der Vorlage:');if(n){US[n]={...P};usSave();usRender()}};
+usRender();
 // Kamera
 const cv=document.getElementById('c');let R0;try{R0=mk(cv)}catch(e){document.body.innerHTML='<p style="padding:20px">WebGL-Fehler: '+e+'</p>'}
 let yaw=40*rad,pit=18*rad,fov=75;
